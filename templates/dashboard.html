@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>BB84 QKD Simulator · Dashboard</title>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+    --ok: #3fb950; --warn: #d29922; --err: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--text); font-size: 14px;
+  }
+  header {
+    padding: 16px 24px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  .badge {
+    padding: 4px 10px; border-radius: 999px; font-size: 12px;
+    background: var(--panel); border: 1px solid var(--border);
+  }
+  .layout { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 60px); }
+  aside {
+    background: var(--panel); border-right: 1px solid var(--border);
+    padding: 16px; display: flex; flex-direction: column; gap: 14px;
+  }
+  aside label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  aside input[type=range] { width: 100%; }
+  aside input[type=text], aside input[type=number] {
+    width: 100%; padding: 6px 8px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+  }
+  button.primary {
+    background: var(--accent); color: #000; font-weight: 600;
+    padding: 10px; border: none; border-radius: 6px; cursor: pointer;
+    width: 100%; margin-top: auto;
+  }
+  button.primary:disabled { opacity: 0.5; cursor: wait; }
+  main { padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .metric {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px;
+  }
+  .metric .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .metric .value { font-size: 22px; font-weight: 600; margin-top: 4px; }
+  .status-secure { color: var(--ok); }
+  .status-abort { color: var(--err); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px;
+  }
+  .card h2 { margin: 0 0 12px; font-size: 14px; color: var(--muted); font-weight: 500; }
+  pre.diagram {
+    background: var(--bg); padding: 12px; border-radius: 6px;
+    overflow-x: auto; font-size: 12px; line-height: 1.4;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .match-yes { color: var(--ok); }
+  .match-no { color: var(--muted); }
+  .eve-yes { color: var(--err); }
+  .spinner {
+    display: none; text-align: center; padding: 40px; color: var(--muted);
+  }
+  .spinner.active { display: block; }
+  .error-box {
+    background: #3d1d1d; border: 1px solid var(--err); color: var(--err);
+    padding: 12px; border-radius: 6px; display: none;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>BB84 Quantum Key Distribution · Live Dashboard</h1>
+  <span class="badge" id="backend-status">backend: Qiskit Aer</span>
+</header>
+
+<div class="layout">
+  <aside>
+    <div>
+      <label>Qubits: <strong id="lbl-n">200</strong></label>
+      <input type="range" id="in-n" min="50" max="1000" step="50" value="200" />
+    </div>
+    <div>
+      <label>Eve interception: <strong id="lbl-eve">0%</strong></label>
+      <input type="range" id="in-eve" min="0" max="100" step="5" value="0" />
+    </div>
+    <div>
+      <label>Channel noise: <strong id="lbl-noise">0%</strong></label>
+      <input type="range" id="in-noise" min="0" max="20" step="1" value="0" />
+    </div>
+    <div>
+      <label>Abort threshold</label>
+      <input type="number" id="in-abort" min="0.01" max="0.30" step="0.01" value="0.11" />
+    </div>
+    <div>
+      <label>Random seed</label>
+      <input type="number" id="in-seed" value="42" />
+    </div>
+    <div>
+      <label>Message (OTP demo)</label>
+      <input type="text" id="in-msg" value="Hi Bob!" />
+    </div>
+    <button class="primary" id="btn-run">Run simulation</button>
+    <div class="spinner" id="spinner">Running Qiskit circuits…</div>
+    <div class="error-box" id="error-box"></div>
+  </aside>
+
+  <main>
+    <div class="metrics">
+      <div class="metric">
+        <div class="label">QBER</div>
+        <div class="value" id="m-qber">—</div>
+      </div>
+      <div class="metric">
+        <div class="label">Sifted length</div>
+        <div class="value" id="m-sifted">—</div>
+      </div>
+      <div class="metric">
+        <div class="label">Final key length</div>
+        <div class="value" id="m-key">—</div>
+      </div>
+      <div class="metric">
+        <div class="label">Status</div>
+        <div class="value" id="m-status">—</div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h2>QBER vs abort threshold</h2>
+        <div id="chart-qber" style="height: 220px;"></div>
+      </div>
+      <div class="card">
+        <h2>Key funnel</h2>
+        <div id="chart-funnel" style="height: 220px;"></div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h2>QBER vs Eve fraction (theory = 25%·f)</h2>
+        <button id="btn-sweep-eve" style="margin-bottom:8px;padding:4px 10px;background:var(--accent);border:none;border-radius:4px;cursor:pointer;">Run sweep</button>
+        <div id="chart-sweep-eve" style="height: 260px;"></div>
+      </div>
+      <div class="card">
+        <h2>QBER vs channel noise</h2>
+        <button id="btn-sweep-noise" style="margin-bottom:8px;padding:4px 10px;background:var(--accent);border:none;border-radius:4px;cursor:pointer;">Run sweep</button>
+        <div id="chart-sweep-noise" style="height: 260px;"></div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h2>Qiskit circuit (qubit 0)</h2>
+        <pre class="diagram" id="circuit-diagram">run a simulation to view</pre>
+      </div>
+      <div class="card">
+        <h2>Histogram · |+⟩ in Z · |0⟩ in Z</h2>
+        <div id="chart-histogram" style="height: 220px;"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Qiskit state fidelity (mutual unbiasedness)</h2>
+      <table id="fidelity-table"><thead></thead><tbody></tbody></table>
+    </div>
+
+    <div class="card">
+      <h2>Protocol table (first 40 qubits)</h2>
+      <table id="protocol-table"><thead></thead><tbody></tbody></table>
+    </div>
+
+    <div class="card">
+      <h2>One-time pad demo</h2>
+      <p>Message: <code id="otp-msg">—</code></p>
+      <p>Decrypted: <code id="otp-dec">—</code></p>
+      <p style="color:var(--muted);font-size:12px;" id="otp-meta"></p>
+    </div>
+  </main>
+</div>
+
+
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+
+</body>
+</html>
